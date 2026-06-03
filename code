@@ -1,0 +1,199 @@
+# ============================================================
+#   Heart Disease Prediction System
+#   Author : M.LVH PRASAD
+#   Tools  : Python, Pandas, Scikit-learn, Matplotlib, Seaborn
+# ============================================================
+
+# ── 1. IMPORTS ───────────────────────────────────────────────
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    accuracy_score, classification_report,
+    confusion_matrix, roc_auc_score, roc_curve
+)
+
+# ── 2. LOAD DATA ─────────────────────────────────────────────
+df = pd.read_csv("heart.csv")
+
+print("Shape:", df.shape)
+print("\nFirst 5 rows:")
+print(df.head())
+
+print("\nMissing values:")
+print(df.isnull().sum())
+
+print("\nTarget distribution:")
+print(df['target'].value_counts())   # 1 = Heart Disease, 0 = No Disease
+
+# ── 3. EDA ───────────────────────────────────────────────────
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+# Target count
+df['target'].value_counts().plot(kind='bar', ax=axes[0],
+    color=['#2ecc71', '#e74c3c'], edgecolor='black')
+axes[0].set_title('Target Distribution')
+axes[0].set_xticklabels(['No Disease (0)', 'Disease (1)'], rotation=0)
+axes[0].set_ylabel('Count')
+
+# Age distribution by target
+df.groupby('target')['age'].plot(kind='hist', alpha=0.6, bins=20,
+    ax=axes[1], legend=True)
+axes[1].set_title('Age Distribution by Target')
+axes[1].set_xlabel('Age')
+axes[1].legend(['No Disease', 'Heart Disease'])
+
+plt.tight_layout()
+plt.savefig('eda_plots.png', dpi=150)
+plt.show()
+print("EDA plot saved as eda_plots.png")
+
+# Correlation heatmap
+plt.figure(figsize=(12, 8))
+sns.heatmap(df.corr(), annot=True, fmt='.2f', cmap='coolwarm', linewidths=0.5)
+plt.title('Feature Correlation Heatmap')
+plt.tight_layout()
+plt.savefig('correlation_heatmap.png', dpi=150)
+plt.show()
+print("Correlation heatmap saved.")
+
+# ── 4. FEATURE ENGINEERING ───────────────────────────────────
+X = df.drop('target', axis=1)
+y = df['target']
+
+# Train-test split (80/20)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# Scale features
+scaler = StandardScaler()
+X_train_sc = scaler.fit_transform(X_train)
+X_test_sc  = scaler.transform(X_test)
+
+print(f"\nTrain size: {X_train.shape[0]} | Test size: {X_test.shape[0]}")
+
+# ── 5. MODEL TRAINING ────────────────────────────────────────
+
+# --- Logistic Regression ---
+lr = LogisticRegression(max_iter=1000, random_state=42)
+lr.fit(X_train_sc, y_train)
+y_pred_lr = lr.predict(X_test_sc)
+
+# --- Random Forest ---
+rf = RandomForestClassifier(n_estimators=100, random_state=42)
+rf.fit(X_train, y_train)
+y_pred_rf = rf.predict(X_test)
+
+# ── 6. EVALUATION ────────────────────────────────────────────
+def evaluate(name, y_true, y_pred, model, X_test_input):
+    acc = accuracy_score(y_true, y_pred)
+    auc = roc_auc_score(y_true, model.predict_proba(X_test_input)[:, 1])
+    print(f"\n{'='*40}")
+    print(f"  {name}")
+    print(f"{'='*40}")
+    print(f"  Accuracy : {acc*100:.2f}%")
+    print(f"  ROC-AUC  : {auc:.4f}")
+    print("\nClassification Report:")
+    print(classification_report(y_true, y_pred,
+          target_names=['No Disease', 'Heart Disease']))
+    return acc, auc
+
+acc_lr, auc_lr = evaluate("Logistic Regression", y_test, y_pred_lr, lr, X_test_sc)
+acc_rf, auc_rf = evaluate("Random Forest",       y_test, y_pred_rf, rf, X_test)
+
+# ── 7. CONFUSION MATRIX PLOT ─────────────────────────────────
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+for ax, y_pred, title in zip(
+    axes,
+    [y_pred_lr, y_pred_rf],
+    ['Logistic Regression', 'Random Forest']
+):
+    cm = confusion_matrix(y_test, y_pred)
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
+                xticklabels=['No Disease', 'Heart Disease'],
+                yticklabels=['No Disease', 'Heart Disease'])
+    ax.set_title(f'Confusion Matrix — {title}')
+    ax.set_ylabel('Actual')
+    ax.set_xlabel('Predicted')
+
+plt.tight_layout()
+plt.savefig('confusion_matrices.png', dpi=150)
+plt.show()
+print("Confusion matrix saved.")
+
+# ── 8. ROC CURVE ─────────────────────────────────────────────
+plt.figure(figsize=(8, 6))
+
+for model, X_in, label, color in [
+    (lr, X_test_sc, f'Logistic Regression (AUC={auc_lr:.2f})', '#3498db'),
+    (rf, X_test,    f'Random Forest       (AUC={auc_rf:.2f})', '#e74c3c'),
+]:
+    fpr, tpr, _ = roc_curve(y_test, model.predict_proba(X_in)[:, 1])
+    plt.plot(fpr, tpr, label=label, color=color, lw=2)
+
+plt.plot([0, 1], [0, 1], 'k--', lw=1)
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve Comparison')
+plt.legend(loc='lower right')
+plt.tight_layout()
+plt.savefig('roc_curve.png', dpi=150)
+plt.show()
+print("ROC curve saved.")
+
+# ── 9. FEATURE IMPORTANCE (Random Forest) ────────────────────
+importances = pd.Series(rf.feature_importances_, index=X.columns)
+importances_sorted = importances.sort_values(ascending=False)
+
+plt.figure(figsize=(10, 6))
+importances_sorted.plot(kind='bar', color='steelblue', edgecolor='black')
+plt.title('Feature Importance — Random Forest')
+plt.ylabel('Importance Score')
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+plt.savefig('feature_importance.png', dpi=150)
+plt.show()
+print("Feature importance plot saved.")
+
+# ── 10. MODEL SUMMARY ────────────────────────────────────────
+print("\n" + "="*45)
+print("         FINAL MODEL COMPARISON")
+print("="*45)
+print(f"  Logistic Regression  →  {acc_lr*100:.2f}% accuracy")
+print(f"  Random Forest        →  {acc_rf*100:.2f}% accuracy")
+print("="*45)
+print(f"\n✅ Best Model: {'Random Forest' if acc_rf >= acc_lr else 'Logistic Regression'}")
+
+# ── 11. SIMPLE PREDICTOR FUNCTION ────────────────────────────
+def predict_heart_disease(age, sex, cp, trestbps, chol, fbs,
+                           restecg, thalach, exang, oldpeak,
+                           slope, ca, thal):
+    """
+    Predict heart disease risk for a new patient.
+    Returns 'Heart Disease Detected' or 'No Heart Disease'.
+    """
+    patient = np.array([[age, sex, cp, trestbps, chol, fbs,
+                         restecg, thalach, exang, oldpeak,
+                         slope, ca, thal]])
+    prediction = rf.predict(patient)[0]
+    probability = rf.predict_proba(patient)[0][1]
+    result = "❤️  Heart Disease Detected" if prediction == 1 else "✅ No Heart Disease"
+    print(f"\nPrediction  : {result}")
+    print(f"Probability : {probability*100:.1f}% chance of heart disease")
+    return prediction
+
+# Example patient
+print("\n--- Sample Prediction ---")
+predict_heart_disease(
+    age=55, sex=1, cp=0, trestbps=140, chol=250,
+    fbs=0, restecg=1, thalach=145, exang=1,
+    oldpeak=1.5, slope=1, ca=1, thal=3
+)
